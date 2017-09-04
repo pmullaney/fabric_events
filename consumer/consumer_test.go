@@ -50,14 +50,9 @@ type BadAdapter struct {
 }
 
 var peerAddress = "0.0.0.0:7303"
-//var ies = []*peer.Interest{{EventType: peer.EventType_CHAINCODE, RegInfo: &peer.Interest_ChaincodeRegInfo{ChaincodeRegInfo: &peer.ChaincodeReg{ChaincodeId: "0xffffffff", EventName: "event1"}}}}
 
 var adapter *MockAdapter
 var eventsClient *EventsClient
-
-/*func (a *ZeroAdapter) GetInterestedEvents() ([]*peer.Interest, error) {
-	return []*peer.Interest{}, nil
-}*/
 
 func (a *ZeroAdapter) Recv(msg *peer.Event) (bool, error) {
 	panic("not implemented")
@@ -78,9 +73,6 @@ func (a *ZeroAdapter) Disconnected(err error) {
 	panic("not implemented")
 }
 
-/*func (a *BadAdapter) GetInterestedEvents() ([]*peer.Interest, error) {
-	return []*peer.Interest{}, fmt.Errorf("Error")
-}*/
 func (a *BadAdapter) Recv(msg *peer.Event) (bool, error) {
 	panic("not implemented")
 }
@@ -98,12 +90,6 @@ func (a *BadAdapter) RecvInvalidEvent(invalidEvent *common.ChannelHeader) bool {
 func (a *BadAdapter) Disconnected(err error) {
 	panic("not implemented")
 }
-
-/*func (a *MockAdapter) GetInterestedEvents() ([]*peer.Interest, error) {
-	return []*peer.Interest{
-		&peer.Interest{EventType: peer.EventType_BLOCK},
-	}, nil
-}*/
 
 func (a *MockAdapter) Recv(msg *peer.Event) (bool, error) {
 	return true, nil
@@ -197,30 +183,6 @@ func TestNewEventsClientConnectionWithAddress(t *testing.T) {
 	}
 }
 
-/*func TestUnregisterAsync(t *testing.T) {
-	var err error
-
-	done := make(chan struct{})
-	doneChaincode := make(chan struct{})
-	doneTx := make(chan struct{})
-	doneInvalid := make(chan struct{})
-	adapter = &MockAdapter{notifyBlock: done, notifyChaincode: doneChaincode, notifyTx: doneTx, notifyInvalid: doneInvalid}
-
-	eventsClient, _ = NewEventsClient(peerAddress, 5, adapter)
-
-	if err = eventsClient.Start(); err != nil {
-		eventsClient.Stop()
-		t.Fail()
-	}
-
-	eventsClient.RegisterAsync(ies)
-	err = eventsClient.UnregisterAsync(ies)
-	assert.NoError(t, err)
-
-	eventsClient.Stop()
-
-}*/
-
 func TestStart(t *testing.T) {
 	var err error
 	var regTimeout = 5 * time.Second
@@ -247,18 +209,6 @@ func TestStart(t *testing.T) {
 			adapter:  &MockAdapter{notifyBlock: done, notifyChaincode: doneChaincode, notifyTx: doneTx, notifyInvalid: doneInvalid},
 			expected: false,
 		},
-/*		{
-			name:     "fail bad adapter",
-			address:  peerAddress,
-			adapter:  &BadAdapter{notifyBlock: done, notifyChaincode: doneChaincode, notifyTx: doneTx, notifyInvalid: doneInvalid},
-			expected: false,
-		},
-		{
-			name:     "fail zero adapter",
-			address:  peerAddress,
-			adapter:  &ZeroAdapter{notifyBlock: done, notifyChaincode: doneChaincode, notifyTx: doneTx, notifyInvalid: doneInvalid},
-			expected: false,
-		},*/
 	}
 
 	for _, test := range cases {

@@ -50,7 +50,8 @@ type EventsClient struct {
 	stream      peer.Events_ChatClient
 	adapter     EventAdapter
 	regBlock    bool
-	events      map[eventHolder]int
+	channelIDs  map[string]int
+	chaincodeEvents map[eventHolder]int
 	txIDs       map[string]int
 	regInvalid  bool
 }
@@ -58,8 +59,8 @@ type EventsClient struct {
 //NewEventsClient Returns a new grpc.ClientConn to the configured local PEER.
 func NewEventsClient(peerAddress string, regTimeout time.Duration, adapter EventAdapter) (*EventsClient, error) {
 	var err error
-	var emptyTxIds = make(map[string]int)
-	var emptyEvents = make(map[eventHolder]int)
+	var emptyMap = make(map[string]int)
+	var emptyChaincodeEventsMap = make(map[eventHolder]int)
 	if regTimeout < 100*time.Millisecond {
 		regTimeout = 100 * time.Millisecond
 		err = fmt.Errorf("regTimeout >= 0, setting to 100 msec")
@@ -70,7 +71,7 @@ func NewEventsClient(peerAddress string, regTimeout time.Duration, adapter Event
 	if len(peerAddress) == 0 {
 		err = fmt.Errorf("peer address must be provided")
 	}
-	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, adapter, false, emptyEvents, emptyTxIds, false}, err
+	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, adapter, true, emptyMap, emptyChaincodeEventsMap, emptyMap, false}, err
 }
 
 //newEventsClientConnectionWithAddress Returns a new grpc.ClientConn to the configured local PEER.
@@ -193,47 +194,86 @@ func (ec *EventsClient) UnregisterBlockEvent() error {
 }
 
 // RegisterChaincodeEvent - registers interest in a chaincode event
-func (ec *EventsClient) RegisterChaincodeEvent(ccID, eName string) error {
-	event := eventHolder{chaincodeID: ccID, eventName: eName}
-	if _, exists := ec.events[event]; exists {
-		fmt.Println("error registering for chaincode event, already subscribed to event: %v, on chaincode ID: %v", eName, ccID)
+func (ec *EventsClient) RegisterChaincodeEvents(chaincodeEventsList []string) error {
+	for i, _ := range chaincodeEventsList {
+		if i % 2 == 0 {
+			event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
+			if _, exists := ec.chaincodeEvents[event]; exists {
+				fmt.Println("error registering for chaincode event, already subscribed to event: %v, on chaincode ID: %v", chaincodeEventsList[i+1], chaincodeEventsList[i])
+			}
+			ec.chaincodeEvents[event] = 0
+		}
 	}
-	ec.events[event] = 0
 	return nil
 }
 
 // UnregisterChaincodeEvent - unregisters interest in a chaincode event
-func (ec *EventsClient) UnregisterChaincodeEvent(ccID, eName string) error {
-	if ccID == "" || eName == "" {
-		return fmt.Errorf("error unregistering chaincode event, chaincode ID and event name must be provided")
-	}
-	event := eventHolder{chaincodeID: ccID, eventName: eName}
-	if _, exists := ec.events[event]; exists {
-		delete(ec.events, event)
-	} else {
-		return fmt.Errorf("error unregistering chaincode event: %v, on chaincode ID: %v, not registered", eName, ccID)
+func (ec *EventsClient) UnregisterChaincodeEvents(chaincodeEventsList []string) error {
+	for i, _ := range chaincodeEventsList {
+		if i % 2 == 0 {
+				event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
+			if _, exists := ec.chaincodeEvents[event]; exists {
+				delete(ec.chaincodeEvents, event)
+			} else {
+				return fmt.Errorf("error unregistering chaincode event: %v, on chaincode ID: %v, not registered", chaincodeEventsList[i+1], chaincodeEventsList[i])
+			}
+		}
 	}
 	return nil
 }
 
 // RegisterTxEvent - registers interest in a tx event
-func (ec *EventsClient) RegisterTxEvent(txID string) error {
-	if txID == "" {
-		return fmt.Errorf("error registering for tx event, txID must be provided")
+func (ec *EventsClient) RegisterTxEvents(txIDsList []string) error {
+	if len(txIDsList) == 0 {
+		return fmt.Errorf("error registering for tx event(s), at least one txID must be provided")
 	}
-	if _, exists := ec.txIDs[txID]; exists {
-		return fmt.Errorf("error registering for tx event: %v, already registered", txID)
+	for _, input := range txIDsList {
+		if _, exists := ec.txIDs[input]; exists {
+			return fmt.Errorf("error registering for tx event: %v, already registered", input)
+		}
+		ec.txIDs[input] = 0
 	}
-	ec.txIDs[txID] = 0
 	return nil
 }
 
 // UnregisterTxEvent - unregisters interest in a tx event
-func (ec *EventsClient) UnregisterTxEvent(txID string) error {
-	if _, exists := ec.txIDs[txID]; exists {
-		delete(ec.txIDs, txID)
-	} else {
-		return fmt.Errorf("error unregistering tx event: %v, not registered", txID)
+func (ec *EventsClient) UnregisterTxEvents(txIDsList []string) error {
+	if len(txIDsList) == 0 {
+		return fmt.Errorf("error unregistering for tx event(s), at lease one txID must be provided")
+	}
+	for _, input := range txIDsList {
+		if _, exists := ec.txIDs[input]; exists {
+			delete(ec.txIDs, input)
+		} else {
+			return fmt.Errorf("error unregistering tx event: %v, not registered", input)
+		}
+	}
+	return nil
+}
+
+func (ec *EventsClient) RegisterChannelIDs(channelIDsList []string) error {
+	if len(channelIDsList) == 0 {
+		return fmt.Errorf("error registering for channel ID event(s), at least one channelID must be provided")
+	}
+	for _, input := range channelIDsList {
+		if _, exists := ec.channelIDs[input]; exists {
+			return fmt.Errorf("error registering for channel ID event: %v, already registered", input)
+		}
+		ec.channelIDs[input] = 0
+	}
+	return nil	
+}
+
+func (ec *EventsClient) UnregisterChannelIDs(channelIDsList []string) error {
+	if len(channelIDsList) == 0 {
+		return fmt.Errorf("error unregistering for channel ID event(s), at least one channelID must be provided")
+	}
+	for _, input := range channelIDsList {
+		if _, exists := ec.channelIDs[input]; exists {
+			delete(ec.channelIDs, input)
+		} else {
+			return fmt.Errorf("error unregistering channel ID event: %v, not registered")
+		}
 	}
 	return nil
 }
@@ -276,11 +316,6 @@ func (ec *EventsClient) processEvents() error {
 	defer ec.stream.CloseSend()
 	for {
 		in, err := ec.stream.Recv()
-//		fmt.Println("DEBU1")
-//		fmt.Println(in)
-//		fmt.Println("DEBU2")
-//		fmt.Println(err)
-//		fmt.Println("DEBU3")
 		if err == io.EOF {
 			// read done.
 			if ec.adapter != nil {
@@ -297,22 +332,12 @@ func (ec *EventsClient) processEvents() error {
 		if ec.adapter != nil {
 			if _, ok := in.Event.(*peer.Event_Block); !ok {
 				fmt.Println("warning, non Event_Block sent to processEvents, ignoring event")
-				return nil
-//				return fmt.Errorf("warning, non Event_Block sent to processEvents, ignoring event")
-			}
-			// Block event logic
-			if ec.regBlock == true {
-				// Used to send block event
-				cont, err := ec.adapter.Recv(in)
-				if !cont {
-					return err
-				}
+				continue
 			}
 
 			block := in.Event.(*peer.Event_Block).Block
 			txsFltr := util.TxValidationFlags(block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER])
-			for i, d := range block.Data.Data {
-				ebytes := d
+			for i, ebytes := range block.Data.Data {
 				if ebytes != nil {
 					if env, err := utils.GetEnvelopeFromBlock(ebytes); err != nil {
 						return fmt.Errorf("error getting tx from block(%s)", err)
@@ -326,6 +351,27 @@ func (ec *EventsClient) processEvents() error {
 						if err != nil {
 							return err
 						}
+						// Channel ID logic
+						// set registered for all channels
+						regChannelID := true
+						// check if registered for specific channel(s)
+						if len(ec.channelIDs) != 0 {
+							regChannelID = false
+							if _, exists := ec.channelIDs[chdr.ChannelId]; exists {
+								regChannelID = true
+							}
+						}
+						if regChannelID == false {
+							continue
+						}
+						// Block event logic
+						if ec.regBlock == true {
+							// Used to send block event
+							cont, err := ec.adapter.Recv(in)
+							if !cont {
+								return err
+							}
+						}
 						// Invalid event logic
 						if ec.regInvalid == true {
 							if txsFltr.IsInvalid(i) {
@@ -335,7 +381,7 @@ func (ec *EventsClient) processEvents() error {
 								}
 							}
 						}
-						if len(ec.txIDs) != 0 || len(ec.events) != 0 {
+						if len(ec.txIDs) != 0 || len(ec.chaincodeEvents) != 0 {
 							if common.HeaderType(chdr.Type) == common.HeaderType_ENDORSER_TRANSACTION {
 								tx, err := utils.GetTransaction(payload.Data)
 								if err != nil {
@@ -352,7 +398,7 @@ func (ec *EventsClient) processEvents() error {
 									}
 								}
 								// Chaincode event logic
-								if len(ec.events) != 0 {
+								if len(ec.chaincodeEvents) != 0 {
 									chaincodeActionPayload, err := utils.GetChaincodeActionPayload(tx.Actions[0].Payload)
 									if err != nil {
 										return fmt.Errorf("error unmarshalling transaction action payload for block event: %s", err)
@@ -368,7 +414,7 @@ func (ec *EventsClient) processEvents() error {
 									ccEvent, err := utils.GetChaincodeEvents(caPayload.Events)
 									if ccEvent != nil {
 										event := eventHolder{chaincodeID: ccEvent.ChaincodeId, eventName: ccEvent.EventName}
-										if _, exists := ec.events[event]; exists {
+										if _, exists := ec.chaincodeEvents[event]; exists {
 											// Used to send ccEvent
 											cont := ec.adapter.RecvChaincodeEvent(ccEvent)
 											if !cont {
@@ -393,15 +439,6 @@ func (ec *EventsClient) Start() error {
 		return fmt.Errorf("could not create client conn to %s:%s", ec.peerAddress, err)
 	}
 
-/*	ies, err := ec.adapter.GetInterestedEvents()
-	if err != nil {
-		return fmt.Errorf("error getting interested events:%s", err)
-	}
-
-	if len(ies) == 0 {
-		return fmt.Errorf("must supply interested events")
-	}
-*/
 	serverClient := peer.NewEventsClient(conn)
 	ec.stream, err = serverClient.Chat(context.Background())
 	if err != nil {

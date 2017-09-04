@@ -24,7 +24,6 @@ import (
 //EventAdapter is the interface by which a fabric event client registers interested events and
 //receives messages from the fabric event Server
 type EventAdapter interface {
-//	GetInterestedEvents() ([]*peer.Interest, error)
 	Recv(msg *peer.Event) (bool, error)
 	RecvChaincodeEvent(chaincodeEvent *peer.ChaincodeEvent) bool
 	RecvTxEvent(txEvent *peer.Transaction) bool

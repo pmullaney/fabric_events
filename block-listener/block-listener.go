@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/hyperledger/fabric/events/consumer"
 	"github.com/hyperledger/fabric/msp/mgmt"
@@ -34,11 +35,6 @@ type adapter struct {
 	notifyTx        chan *pb.Transaction
 	notifyInvalid   chan *common.ChannelHeader
 }
-
-//GetInterestedEvents implements consumer.EventAdapter interface for registering interested events
-/*func (a *adapter) GetInterestedEvents() ([]*pb.Interest, error) {
-	return []*pb.Interest{{EventType: pb.EventType_BLOCK}}, nil
-}*/
 
 //Recv implements consumer.EventAdapter interface for receiving events
 func (a *adapter) Recv(msg *pb.Event) (bool, error) {
@@ -70,7 +66,7 @@ func (a *adapter) Disconnected(err error) {
 	os.Exit(1)
 }
 
-func createEventClient(eventAddress string, regBlock bool, chaincodeID, eventName, txID string, regInvalid bool) *adapter {
+func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents []string, block bool, invalid bool) *adapter {
 	var eventsClient *consumer.EventsClient
 
 	done := make(chan *pb.Event_Block)
@@ -87,20 +83,19 @@ func createEventClient(eventAddress string, regBlock bool, chaincodeID, eventNam
 		eventsClient.Stop()
 		return nil
 	}
-	if regBlock == true {
-		eventsClient.RegisterBlockEvent()
+	if block == false {
+		eventsClient.UnregisterBlockEvent()
 	}
-	if chaincodeID != "" && eventName == "" || chaincodeID == "" && eventName != "" {
-		fmt.Println("both chaincodeID and event name must be provided if event name is provided")
-		return nil
+	if len(channelIDs) != 0 {
+		eventsClient.RegisterChannelIDs(channelIDs)
 	}
-	if chaincodeID != "" && eventName != "" {
-		eventsClient.RegisterChaincodeEvent(chaincodeID, eventName)
+	if len(txIDs) != 0 {
+		eventsClient.RegisterTxEvents(txIDs)
 	}
-	if txID != "" {
-		eventsClient.RegisterTxEvent(txID)
+	if len(chaincodeEvents) != 0 {
+		eventsClient.RegisterChaincodeEvents(chaincodeEvents)
 	}
-	if regInvalid == true {
+	if invalid == true {
 		eventsClient.RegisterInvalidEvent()
 	}
 	return adapter
@@ -108,20 +103,20 @@ func createEventClient(eventAddress string, regBlock bool, chaincodeID, eventNam
 
 func main() {
 	var eventAddress string
-	var chaincodeID string
+	var channelID string
 	var mspDir string
 	var mspID string
 	var txID string
-	var eventName string
+	var chaincodeEvent string
 	var block bool
 	var invalid bool
 	flag.StringVar(&eventAddress, "events-address", "0.0.0.0:7053", "address of events server")
-	flag.StringVar(&chaincodeID, "events-from-chaincode", "", "listen to events from given chaincode")
+	flag.StringVar(&channelID, "events-from-channel", "", "listen to events from a given channel - accepts comma separated values: <channelID1,channelID2,...> - default is all")
 	flag.StringVar(&mspDir, "events-mspdir", "", "set up the msp direction")
 	flag.StringVar(&mspID, "events-mspid", "", "set up the mspid")
-	flag.StringVar(&txID, "events-txid", "", "listen to events from a given transaction")
-	flag.StringVar(&eventName, "events-event-name", "", "listen to events with a given name")
-	flag.BoolVar(&block, "events-block", false, "listen to block events")
+	flag.StringVar(&txID, "events-txid", "", "listen to events from a given transaction - accepts comma separated values: <transactionID1,transactionID2,...>")
+	flag.StringVar(&chaincodeEvent, "events-chaincode-event", "", "listen to events from a given chaincode with a given event name - accepts comma separated pairs: <chaincodeID1,event-name1,...>")
+	flag.BoolVar(&block, "events-block", true, "listen to block events")
 	flag.BoolVar(&invalid, "events-invalid", false, "listen to invalid events")
 	flag.Parse()
 
@@ -141,9 +136,24 @@ func main() {
 		}
 	}
 
+	var channelIDs []string
+	var txIDs []string
+	var chaincodeEvents []string
+	if len(channelID) != 0 {
+		channelIDs = strings.Split(channelID, ",")
+	}
+	if len(txID) != 0 {
+		txIDs = strings.Split(txID, ",")
+	}
+	if len(chaincodeEvent) != 0 {
+		chaincodeEvents = strings.Split(chaincodeEvent, ",")
+		if len(chaincodeEvents) % 2 != 0 {
+			fmt.Printf("Chaincode events must be entered as comma separated pairs: <chaincodeID1,event-name1,...\n")
+			os.Exit(-1)
+		}
+	}
 	fmt.Printf("Event Address: %s\n", eventAddress)
-
-	a := createEventClient(eventAddress, block, chaincodeID, eventName, txID, invalid)
+	a := createEventClient(eventAddress, channelIDs, txIDs, chaincodeEvents, block, invalid)
 	if a == nil {
 		fmt.Println("Error creating event client")
 		return
