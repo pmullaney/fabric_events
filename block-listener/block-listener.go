@@ -147,7 +147,7 @@ func main() {
 	}
 	if len(chaincodeEvent) != 0 {
 		chaincodeEvents = strings.Split(chaincodeEvent, ",")
-		if len(chaincodeEvents) % 2 != 0 {
+		if len(chaincodeEvents)%2 != 0 {
 			fmt.Printf("Chaincode events must be entered as comma separated pairs: <chaincodeID1,event-name1,...\n")
 			os.Exit(-1)
 		}

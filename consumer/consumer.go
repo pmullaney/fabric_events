@@ -45,15 +45,15 @@ type eventHolder struct {
 //EventsClient holds the stream and adapter for consumer to work with
 type EventsClient struct {
 	sync.RWMutex
-	peerAddress string
-	regTimeout  time.Duration
-	stream      peer.Events_ChatClient
-	adapter     EventAdapter
-	regBlock    bool
-	channelIDs  map[string]int
+	peerAddress     string
+	regTimeout      time.Duration
+	stream          peer.Events_ChatClient
+	adapter         EventAdapter
+	regBlock        bool
+	channelIDs      map[string]int
 	chaincodeEvents map[eventHolder]int
-	txIDs       map[string]int
-	regInvalid  bool
+	txIDs           map[string]int
+	regInvalid      bool
 }
 
 //NewEventsClient Returns a new grpc.ClientConn to the configured local PEER.
@@ -193,10 +193,10 @@ func (ec *EventsClient) UnregisterBlockEvent() error {
 	return nil
 }
 
-// RegisterChaincodeEvent - registers interest in a chaincode event
+// RegisterChaincodeEvents - registers interest in chaincode event(s)
 func (ec *EventsClient) RegisterChaincodeEvents(chaincodeEventsList []string) error {
-	for i, _ := range chaincodeEventsList {
-		if i % 2 == 0 {
+	for i := range chaincodeEventsList {
+		if i%2 == 0 {
 			event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
 			if _, exists := ec.chaincodeEvents[event]; exists {
 				fmt.Println("error registering for chaincode event, already subscribed to event: %v, on chaincode ID: %v", chaincodeEventsList[i+1], chaincodeEventsList[i])
@@ -207,11 +207,11 @@ func (ec *EventsClient) RegisterChaincodeEvents(chaincodeEventsList []string) er
 	return nil
 }
 
-// UnregisterChaincodeEvent - unregisters interest in a chaincode event
+// UnregisterChaincodeEvents - unregisters interest in chaincode event(s)
 func (ec *EventsClient) UnregisterChaincodeEvents(chaincodeEventsList []string) error {
-	for i, _ := range chaincodeEventsList {
-		if i % 2 == 0 {
-				event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
+	for i := range chaincodeEventsList {
+		if i%2 == 0 {
+			event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
 			if _, exists := ec.chaincodeEvents[event]; exists {
 				delete(ec.chaincodeEvents, event)
 			} else {
@@ -222,7 +222,7 @@ func (ec *EventsClient) UnregisterChaincodeEvents(chaincodeEventsList []string) 
 	return nil
 }
 
-// RegisterTxEvent - registers interest in a tx event
+// RegisterTxEvents - registers interest in tx event(s)
 func (ec *EventsClient) RegisterTxEvents(txIDsList []string) error {
 	if len(txIDsList) == 0 {
 		return fmt.Errorf("error registering for tx event(s), at least one txID must be provided")
@@ -236,7 +236,7 @@ func (ec *EventsClient) RegisterTxEvents(txIDsList []string) error {
 	return nil
 }
 
-// UnregisterTxEvent - unregisters interest in a tx event
+// UnregisterTxEvents - unregisters interest in tx event(s)
 func (ec *EventsClient) UnregisterTxEvents(txIDsList []string) error {
 	if len(txIDsList) == 0 {
 		return fmt.Errorf("error unregistering for tx event(s), at lease one txID must be provided")
@@ -251,6 +251,7 @@ func (ec *EventsClient) UnregisterTxEvents(txIDsList []string) error {
 	return nil
 }
 
+// RegisterChannelIDs - registers interest in events on specific channelID(s)
 func (ec *EventsClient) RegisterChannelIDs(channelIDsList []string) error {
 	if len(channelIDsList) == 0 {
 		return fmt.Errorf("error registering for channel ID event(s), at least one channelID must be provided")
@@ -261,9 +262,10 @@ func (ec *EventsClient) RegisterChannelIDs(channelIDsList []string) error {
 		}
 		ec.channelIDs[input] = 0
 	}
-	return nil	
+	return nil
 }
 
+// UnregisterChannelIDs - unregisters interest in events on specific channelID(s)
 func (ec *EventsClient) UnregisterChannelIDs(channelIDsList []string) error {
 	if len(channelIDsList) == 0 {
 		return fmt.Errorf("error unregistering for channel ID event(s), at least one channelID must be provided")
