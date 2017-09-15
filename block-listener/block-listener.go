@@ -26,79 +26,74 @@ import (
 	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/msp/mgmt/testtools"
 	"github.com/hyperledger/fabric/protos/common"
-	pb "github.com/hyperledger/fabric/protos/peer"
+	"github.com/hyperledger/fabric/protos/peer"
 )
 
-type adapter struct {
-	notifyBlock     chan *pb.Event_Block
-	notifyChaincode chan *pb.ChaincodeEvent
-	notifyTx        chan *pb.Transaction
-	notifyInvalid   chan *common.ChannelHeader
-}
-
 //Recv implements consumer.EventAdapter interface for receiving events
-func (a *adapter) Recv(msg *pb.Event) (bool, error) {
-	if o, e := msg.Event.(*pb.Event_Block); e {
-		a.notifyBlock <- o
+func recvBlockEvent(msg *peer.Event, c chan *peer.Event_Block) (bool, error) {
+	if o, e := msg.Event.(*peer.Event_Block); e {
+		c <- o
 		return true, nil
 	}
 	return false, fmt.Errorf("Receive unknown type event: %v", msg)
 }
 
-func (a *adapter) RecvChaincodeEvent(msg *pb.ChaincodeEvent) bool {
-	a.notifyChaincode <- msg
+func recvChaincodeEvent(msg *peer.ChaincodeEvent, c chan *peer.ChaincodeEvent) bool {
+	c <- msg
 	return true
 }
 
-func (a *adapter) RecvTxEvent(msg *pb.Transaction) bool {
-	a.notifyTx <- msg
+func recvTxEvent(msg *peer.Transaction, c chan *peer.Transaction) bool {
+	c <- msg
 	return true
 }
 
-func (a *adapter) RecvInvalidEvent(msg *common.ChannelHeader) bool {
-	a.notifyInvalid <- msg
+func recvInvalidEvent(msg *common.ChannelHeader, c chan *common.ChannelHeader) bool {
+	c <- msg
 	return true
 }
 
 //Disconnected implements consumer.EventAdapter interface for disconnecting
-func (a *adapter) Disconnected(err error) {
+func disconnected(err error) {
 	fmt.Print("Disconnected...exiting\n")
 	os.Exit(1)
 }
 
-func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents []string, block bool, invalid bool) *adapter {
+func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents []string, block bool, invalid bool) (chan *peer.Event_Block, chan *peer.ChaincodeEvent, chan *peer.Transaction, chan *common.ChannelHeader) {
+	notifyBlock := make(chan *peer.Event_Block)
+	notifyChaincode := make(chan *peer.ChaincodeEvent)
+	notifyTx := make(chan *peer.Transaction)
+	notifyInvalid := make(chan *common.ChannelHeader)
+
 	var eventsClient *consumer.EventsClient
 
-	done := make(chan *pb.Event_Block)
-	doneChaincode := make(chan *pb.ChaincodeEvent)
-	doneTx := make(chan *pb.Transaction)
-	doneInvalid := make(chan *common.ChannelHeader)
-	adapter := &adapter{notifyBlock: done, notifyChaincode: doneChaincode, notifyTx: doneTx, notifyInvalid: doneInvalid}
-	eventsClient, err := consumer.NewEventsClient(eventAddress, 5, adapter)
+	eventsClient, err := consumer.NewEventsClient(eventAddress, 5, notifyBlock, notifyChaincode, notifyTx, notifyInvalid)
 	if err != nil {
 		fmt.Println(err)
 	}
 	if err := eventsClient.Start(); err != nil {
 		fmt.Printf("could not start chat. err: %s\n", err)
 		eventsClient.Stop()
-		return nil
 	}
-	if block == false {
-		eventsClient.UnregisterBlockEvent()
+	if block == true {
+		err := eventsClient.RegisterBlockEvent(recvBlockEvent)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 	if len(channelIDs) != 0 {
 		eventsClient.RegisterChannelIDs(channelIDs)
 	}
 	if len(txIDs) != 0 {
-		eventsClient.RegisterTxEvents(txIDs)
+		eventsClient.RegisterTxEvents(txIDs, recvTxEvent)
 	}
 	if len(chaincodeEvents) != 0 {
-		eventsClient.RegisterChaincodeEvents(chaincodeEvents)
+		eventsClient.RegisterChaincodeEvents(chaincodeEvents, recvChaincodeEvent)
 	}
 	if invalid == true {
-		eventsClient.RegisterInvalidEvent()
+		eventsClient.RegisterInvalidEvent(recvInvalidEvent)
 	}
-	return adapter
+	return notifyBlock, notifyChaincode, notifyTx, notifyInvalid
 }
 
 func main() {
@@ -116,7 +111,7 @@ func main() {
 	flag.StringVar(&mspID, "events-mspid", "", "set up the mspid")
 	flag.StringVar(&txID, "events-txid", "", "listen to events from a given transaction - accepts comma separated values: <transactionID1,transactionID2,...>")
 	flag.StringVar(&chaincodeEvent, "events-chaincode-event", "", "listen to events from a given chaincode with a given event name - accepts comma separated pairs: <chaincodeID1,event-name1,...>")
-	flag.BoolVar(&block, "events-block", true, "listen to block events")
+	flag.BoolVar(&block, "events-block", false, "listen to block events")
 	flag.BoolVar(&invalid, "events-invalid", false, "listen to invalid events")
 	flag.Parse()
 
@@ -153,32 +148,29 @@ func main() {
 		}
 	}
 	fmt.Printf("Event Address: %s\n", eventAddress)
-	a := createEventClient(eventAddress, channelIDs, txIDs, chaincodeEvents, block, invalid)
-	if a == nil {
-		fmt.Println("Error creating event client")
-		return
-	}
+	notifyBlock, notifyChaincode, notifyTx, notifyInvalid := createEventClient(eventAddress, channelIDs, txIDs, chaincodeEvents, block, invalid)
+
 	for {
 		select {
-		case bl := <-a.notifyBlock:
+		case bl := <-notifyBlock:
 			fmt.Println("")
 			fmt.Println("")
 			fmt.Println("Received block")
 			fmt.Println("--------------")
 			fmt.Println(bl)
-		case cc := <-a.notifyChaincode:
+		case cc := <-notifyChaincode:
 			fmt.Println("")
 			fmt.Println("")
 			fmt.Println("Received chaincode event")
 			fmt.Println("--------------")
 			fmt.Println(cc)
-		case tx := <-a.notifyTx:
+		case tx := <-notifyTx:
 			fmt.Println("")
 			fmt.Println("")
 			fmt.Println("Received tx event")
 			fmt.Println("--------------")
 			fmt.Println(tx)
-		case in := <-a.notifyInvalid:
+		case in := <-notifyInvalid:
 			fmt.Println("")
 			fmt.Println("")
 			fmt.Printf("Received invalid transaction from channel '%s'\n", in.ChannelId)
