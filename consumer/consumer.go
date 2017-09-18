@@ -37,13 +37,13 @@ import (
 
 var consumerLogger = flogging.MustGetLogger("eventhub_consumer")
 
-type recvBlockEventFunc func(*peer.Event, chan *peer.Event_Block) (bool, error)
+type recvBlockEventFunc func(*peer.Event_Block)
 
-type recvChaincodeEventFunc func(*peer.ChaincodeEvent, chan *peer.ChaincodeEvent) bool
+type recvChaincodeEventFunc func(*peer.ChaincodeEvent)
 
-type recvTxEventFunc func(*peer.Transaction, chan *peer.Transaction) bool
+type recvTxEventFunc func(*peer.Transaction)
 
-type recvInvalidEventFunc func(*common.ChannelHeader, chan *common.ChannelHeader) bool
+type recvInvalidEventFunc func(*common.ChannelHeader)
 
 type disconnectedFunc func(error)
 
@@ -55,30 +55,25 @@ type eventHolder struct {
 //EventsClient holds the stream and adapter for consumer to work with
 type EventsClient struct {
 	sync.RWMutex
-	peerAddress        string
-	regTimeout         time.Duration
-	stream             peer.Events_ChatClient
-	notifyBlock        chan *peer.Event_Block
-	notifyChaincode    chan *peer.ChaincodeEvent
-	notifyTx           chan *peer.Transaction
-	notifyInvalid      chan *common.ChannelHeader
-	recvBlockEvent     recvBlockEventFunc
-	recvChaincodeEvent recvChaincodeEventFunc
-	recvTxEvent        recvTxEventFunc
-	recvInvalidEvent   recvInvalidEventFunc
-	disconnected       disconnectedFunc
-	regBlock           bool
-	channelIDs         map[string]int
-	chaincodeEvents    map[eventHolder]int
-	txIDs              map[string]int
-	regInvalid         bool
+	peerAddress     string
+	regTimeout      time.Duration
+	stream          peer.Events_ChatClient
+	disconnected    disconnectedFunc
+	regBlock        map[bool]recvBlockEventFunc
+	channelIDs      map[string]int
+	chaincodeEvents map[eventHolder]recvChaincodeEventFunc
+	txIDs           map[string]recvTxEventFunc
+	regInvalid      map[bool]recvInvalidEventFunc
 }
 
 //NewEventsClient Returns a new grpc.ClientConn to the configured local PEER.
-func NewEventsClient(peerAddress string, regTimeout time.Duration, notifyBlock chan *peer.Event_Block, notifyChaincode chan *peer.ChaincodeEvent, notifyTx chan *peer.Transaction, notifyInvalid chan *common.ChannelHeader) (*EventsClient, error) {
+func NewEventsClient(peerAddress string, regTimeout time.Duration) (*EventsClient, error) {
 	var err error
-	var emptyMap = make(map[string]int)
-	var emptyChaincodeEventsMap = make(map[eventHolder]int)
+	var emptyRegBlockMap = make(map[bool]recvBlockEventFunc)
+	var emptyChannelIDsMap = make(map[string]int)
+	var emptyChaincodeEventsMap = make(map[eventHolder]recvChaincodeEventFunc)
+	var emptyTxIDsMap = make(map[string]recvTxEventFunc)
+	var emptyRegInvalidMap = make(map[bool]recvInvalidEventFunc)
 	if regTimeout < 100*time.Millisecond {
 		regTimeout = 100 * time.Millisecond
 		err = fmt.Errorf("regTimeout >= 0, setting to 100 msec")
@@ -89,7 +84,7 @@ func NewEventsClient(peerAddress string, regTimeout time.Duration, notifyBlock c
 	if len(peerAddress) == 0 {
 		err = fmt.Errorf("peer address must be provided")
 	}
-	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, notifyBlock, notifyChaincode, notifyTx, notifyInvalid, nil, nil, nil, nil, nil, false, emptyMap, emptyChaincodeEventsMap, emptyMap, false}, err
+	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, nil, emptyRegBlockMap, emptyChannelIDsMap, emptyChaincodeEventsMap, emptyTxIDsMap, emptyRegInvalidMap}, err
 }
 
 //newEventsClientConnectionWithAddress Returns a new grpc.ClientConn to the configured local PEER.
@@ -168,39 +163,37 @@ func (ec *EventsClient) register(ies []*peer.Interest) error {
 
 // RegisterInvalidEvent - registers interest in invalid events
 func (ec *EventsClient) RegisterInvalidEvent(ri recvInvalidEventFunc) error {
-	if ec.regInvalid != false {
+	if _, exists := ec.regInvalid[true]; exists {
 		return fmt.Errorf("error registering for invalid events, already registered")
 	}
-	ec.regInvalid = true
-	ec.recvInvalidEvent = ri
+	ec.regInvalid[true] = ri
 	return nil
 }
 
 // UnregisterInvalidEvent - unregisters interest in invalid events
 func (ec *EventsClient) UnregisterInvalidEvent() error {
-	if ec.regInvalid != true {
+	if _, exists := ec.regInvalid[true]; !exists {
 		return fmt.Errorf("error unregistering for invalid events, not registered")
 	}
-	ec.regInvalid = false
+	delete(ec.regInvalid, true)
 	return nil
 }
 
 // RegisterBlockEvent - registers interest in block events
 func (ec *EventsClient) RegisterBlockEvent(rb recvBlockEventFunc) error {
-	if ec.regBlock != false {
+	if _, exists := ec.regBlock[true]; exists {
 		return fmt.Errorf("error registering for block events, already registered")
 	}
-	ec.regBlock = true
-	ec.recvBlockEvent = rb
+	ec.regBlock[true] = rb
 	return nil
 }
 
 // UnregisterBlockEvent - unregisters interest in block events
 func (ec *EventsClient) UnregisterBlockEvent() error {
-	if ec.regBlock != true {
+	if _, exists := ec.regBlock[true]; !exists {
 		return fmt.Errorf("error unregistering for block events, not registered")
 	}
-	ec.regBlock = false
+	delete(ec.regBlock, true)
 	return nil
 }
 
@@ -212,10 +205,9 @@ func (ec *EventsClient) RegisterChaincodeEvents(chaincodeEventsList []string, rc
 			if _, exists := ec.chaincodeEvents[event]; exists {
 				fmt.Println("error registering for chaincode event, already subscribed to event: %v, on chaincode ID: %v", chaincodeEventsList[i+1], chaincodeEventsList[i])
 			}
-			ec.chaincodeEvents[event] = 0
+			ec.chaincodeEvents[event] = rc
 		}
 	}
-	ec.recvChaincodeEvent = rc
 	return nil
 }
 
@@ -243,9 +235,8 @@ func (ec *EventsClient) RegisterTxEvents(txIDsList []string, rt recvTxEventFunc)
 		if _, exists := ec.txIDs[input]; exists {
 			return fmt.Errorf("error registering for tx event: %v, already registered", input)
 		}
-		ec.txIDs[input] = 0
+		ec.txIDs[input] = rt
 	}
-	ec.recvTxEvent = rt
 	return nil
 }
 
@@ -356,20 +347,14 @@ func (ec *EventsClient) processEvents() error {
 						continue
 					}
 					// Block event logic
-					if ec.regBlock == true {
+					if regBlockFunc, exists := ec.regBlock[true]; exists {
 						// Used to send block event
-						cont, err := ec.recvBlockEvent(in, ec.notifyBlock)
-						if !cont {
-							return err
-						}
+						regBlockFunc(in.Event.(*peer.Event_Block))
 					}
 					// Invalid event logic
-					if ec.regInvalid == true {
+					if regInvalidFunc, exists := ec.regInvalid[true]; exists {
 						if txsFltr.IsInvalid(i) {
-							cont := ec.recvInvalidEvent(chdr, ec.notifyInvalid)
-							if !cont {
-								return fmt.Errorf("error receiving invalid event")
-							}
+							regInvalidFunc(chdr)
 						}
 					}
 					if len(ec.txIDs) != 0 || len(ec.chaincodeEvents) != 0 {
@@ -380,12 +365,9 @@ func (ec *EventsClient) processEvents() error {
 							}
 							// Tx event logic
 							if len(ec.txIDs) != 0 {
-								if _, exists := ec.txIDs[chdr.TxId]; exists {
+								if txIDFunc, exists := ec.txIDs[chdr.TxId]; exists {
 									// Used to send txEvent
-									cont := ec.recvTxEvent(tx, ec.notifyTx)
-									if !cont {
-										return fmt.Errorf("error receiving Tx event")
-									}
+									txIDFunc(tx)
 								}
 							}
 							// Chaincode event logic
@@ -405,12 +387,9 @@ func (ec *EventsClient) processEvents() error {
 								ccEvent, err := utils.GetChaincodeEvents(caPayload.Events)
 								if ccEvent != nil {
 									event := eventHolder{chaincodeID: ccEvent.ChaincodeId, eventName: ccEvent.EventName}
-									if _, exists := ec.chaincodeEvents[event]; exists {
+									if recvChaincodeEventFunc, exists := ec.chaincodeEvents[event]; exists {
 										// Used to send ccEvent
-										cont := ec.recvChaincodeEvent(ccEvent, ec.notifyChaincode)
-										if !cont {
-											return fmt.Errorf("error receiving chaincode event")
-										}
+										recvChaincodeEventFunc(ccEvent)
 									}
 								}
 							}

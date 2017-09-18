@@ -29,45 +29,17 @@ import (
 	"github.com/hyperledger/fabric/protos/peer"
 )
 
-//Recv implements consumer.EventAdapter interface for receiving events
-func recvBlockEvent(msg *peer.Event, c chan *peer.Event_Block) (bool, error) {
-	if o, e := msg.Event.(*peer.Event_Block); e {
-		c <- o
-		return true, nil
-	}
-	return false, fmt.Errorf("Receive unknown type event: %v", msg)
-}
-
-func recvChaincodeEvent(msg *peer.ChaincodeEvent, c chan *peer.ChaincodeEvent) bool {
-	c <- msg
-	return true
-}
-
-func recvTxEvent(msg *peer.Transaction, c chan *peer.Transaction) bool {
-	c <- msg
-	return true
-}
-
-func recvInvalidEvent(msg *common.ChannelHeader, c chan *common.ChannelHeader) bool {
-	c <- msg
-	return true
-}
-
 //Disconnected implements consumer.EventAdapter interface for disconnecting
 func disconnected(err error) {
 	fmt.Print("Disconnected...exiting\n")
 	os.Exit(1)
 }
 
-func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents []string, block bool, invalid bool) (chan *peer.Event_Block, chan *peer.ChaincodeEvent, chan *peer.Transaction, chan *common.ChannelHeader) {
-	notifyBlock := make(chan *peer.Event_Block)
-	notifyChaincode := make(chan *peer.ChaincodeEvent)
-	notifyTx := make(chan *peer.Transaction)
-	notifyInvalid := make(chan *common.ChannelHeader)
+func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents []string, block bool, invalid bool) error {
 
 	var eventsClient *consumer.EventsClient
 
-	eventsClient, err := consumer.NewEventsClient(eventAddress, 5, notifyBlock, notifyChaincode, notifyTx, notifyInvalid)
+	eventsClient, err := consumer.NewEventsClient(eventAddress, 5)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -76,24 +48,44 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 		eventsClient.Stop()
 	}
 	if block == true {
-		err := eventsClient.RegisterBlockEvent(recvBlockEvent)
+		err := eventsClient.RegisterBlockEvent(func(msg *peer.Event_Block) {
+			fmt.Println(msg)
+		})
 		if err != nil {
-			fmt.Println(err)
+			return err
 		}
 	}
 	if len(channelIDs) != 0 {
-		eventsClient.RegisterChannelIDs(channelIDs)
+		err := eventsClient.RegisterChannelIDs(channelIDs)
+		if err != nil {
+			return err
+		}
 	}
 	if len(txIDs) != 0 {
-		eventsClient.RegisterTxEvents(txIDs, recvTxEvent)
+		err := eventsClient.RegisterTxEvents(txIDs, func(msg *peer.Transaction) {
+			fmt.Println(msg)
+		})
+		if err != nil {
+			return err
+		}
 	}
 	if len(chaincodeEvents) != 0 {
-		eventsClient.RegisterChaincodeEvents(chaincodeEvents, recvChaincodeEvent)
+		err := eventsClient.RegisterChaincodeEvents(chaincodeEvents, func(msg *peer.ChaincodeEvent) {
+			fmt.Println(msg)
+		})
+		if err != nil {
+			return err
+		}
 	}
 	if invalid == true {
-		eventsClient.RegisterInvalidEvent(recvInvalidEvent)
+		err := eventsClient.RegisterInvalidEvent(func(msg *common.ChannelHeader) {
+			fmt.Println(msg)
+		})
+		if err != nil {
+			return err
+		}
 	}
-	return notifyBlock, notifyChaincode, notifyTx, notifyInvalid
+	return nil
 }
 
 func main() {
@@ -147,35 +139,14 @@ func main() {
 			os.Exit(-1)
 		}
 	}
+
 	fmt.Printf("Event Address: %s\n", eventAddress)
-	notifyBlock, notifyChaincode, notifyTx, notifyInvalid := createEventClient(eventAddress, channelIDs, txIDs, chaincodeEvents, block, invalid)
+	err := createEventClient(eventAddress, channelIDs, txIDs, chaincodeEvents, block, invalid)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(-1)
+	}
 
 	for {
-		select {
-		case bl := <-notifyBlock:
-			fmt.Println("")
-			fmt.Println("")
-			fmt.Println("Received block")
-			fmt.Println("--------------")
-			fmt.Println(bl)
-		case cc := <-notifyChaincode:
-			fmt.Println("")
-			fmt.Println("")
-			fmt.Println("Received chaincode event")
-			fmt.Println("--------------")
-			fmt.Println(cc)
-		case tx := <-notifyTx:
-			fmt.Println("")
-			fmt.Println("")
-			fmt.Println("Received tx event")
-			fmt.Println("--------------")
-			fmt.Println(tx)
-		case in := <-notifyInvalid:
-			fmt.Println("")
-			fmt.Println("")
-			fmt.Printf("Received invalid transaction from channel '%s'\n", in.ChannelId)
-			fmt.Println("--------------")
-			fmt.Printf("Transaction invalid: TxID: %s\n", in.TxId)
-		}
 	}
 }
