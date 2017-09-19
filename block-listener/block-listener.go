@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/hyperledger/fabric/events/consumer"
 	"github.com/hyperledger/fabric/msp/mgmt"
@@ -29,9 +30,12 @@ import (
 	"github.com/hyperledger/fabric/protos/peer"
 )
 
+var wg sync.WaitGroup
+
 //Disconnected implements consumer.EventAdapter interface for disconnecting
 func disconnected(err error) {
 	fmt.Print("Disconnected...exiting\n")
+	wg.Done()
 	os.Exit(1)
 }
 
@@ -49,6 +53,10 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 	}
 	if block == true {
 		err := eventsClient.RegisterBlockEvent(func(msg *peer.Event_Block) {
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("Received block")
+			fmt.Println("--------------")
 			fmt.Println(msg)
 		})
 		if err != nil {
@@ -63,6 +71,10 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 	}
 	if len(txIDs) != 0 {
 		err := eventsClient.RegisterTxEvents(txIDs, func(msg *peer.Transaction) {
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("Received tx event")
+			fmt.Println("--------------")
 			fmt.Println(msg)
 		})
 		if err != nil {
@@ -71,6 +83,10 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 	}
 	if len(chaincodeEvents) != 0 {
 		err := eventsClient.RegisterChaincodeEvents(chaincodeEvents, func(msg *peer.ChaincodeEvent) {
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("Received chaincode event")
+			fmt.Println("--------------")
 			fmt.Println(msg)
 		})
 		if err != nil {
@@ -79,7 +95,11 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 	}
 	if invalid == true {
 		err := eventsClient.RegisterInvalidEvent(func(msg *common.ChannelHeader) {
-			fmt.Println(msg)
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Printf("Received invalid transaction from channel '%s'\n", msg.ChannelId)
+			fmt.Println("--------------")
+			fmt.Printf("Transaction invalid: TxID: %s\n", msg.TxId)
 		})
 		if err != nil {
 			return err
@@ -89,6 +109,7 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 }
 
 func main() {
+	wg.Add(1)
 	var eventAddress string
 	var channelID string
 	var mspDir string
@@ -147,6 +168,5 @@ func main() {
 		os.Exit(-1)
 	}
 
-	for {
-	}
+	wg.Wait()
 }
