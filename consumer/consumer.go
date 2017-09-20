@@ -69,6 +69,9 @@ type EventsClient struct {
 //NewEventsClient Returns a new grpc.ClientConn to the configured local PEER.
 func NewEventsClient(peerAddress string, regTimeout time.Duration, disconnected disconnectedFunc) (*EventsClient, error) {
 	var err error
+	if disconnected == nil {
+		err = fmt.Errorf("disconnected function must be provided")
+	}
 	var emptyRegBlockMap = make(map[bool]recvBlockEventFunc)
 	var emptyChannelIDsMap = make(map[string]int)
 	var emptyChaincodeEventsMap = make(map[eventHolder]recvChaincodeEventFunc)
@@ -166,6 +169,9 @@ func (ec *EventsClient) RegisterInvalidEvent(ri recvInvalidEventFunc) error {
 	if _, exists := ec.regInvalid[true]; exists {
 		return fmt.Errorf("error registering for invalid events, already registered")
 	}
+	if ri == nil {
+		return fmt.Errorf("error registering for invalid events, nil callback function passed as argument")
+	}
 	ec.regInvalid[true] = ri
 	return nil
 }
@@ -184,6 +190,9 @@ func (ec *EventsClient) RegisterBlockEvent(rb recvBlockEventFunc) error {
 	if _, exists := ec.regBlock[true]; exists {
 		return fmt.Errorf("error registering for block events, already registered")
 	}
+	if rb == nil {
+		return fmt.Errorf("error registering for block events, nil callback function passed as argument")
+	}
 	ec.regBlock[true] = rb
 	return nil
 }
@@ -199,11 +208,20 @@ func (ec *EventsClient) UnregisterBlockEvent() error {
 
 // RegisterChaincodeEvents - registers interest in chaincode event(s)
 func (ec *EventsClient) RegisterChaincodeEvents(chaincodeEventsList []string, rc recvChaincodeEventFunc) error {
+	if len(chaincodeEventsList) < 2 {
+		return fmt.Errorf("error registering for chaincode event, at least one chaincode ID and one event name must be provided")
+	}
+	if len(chaincodeEventsList)%2 != 0 {
+		return fmt.Errorf("error registering for chaincode event, chaincode events must be passed in pairs with at least one chaincode ID and one event name")
+	}
+	if rc == nil {
+		return fmt.Errorf("error registering for chaincode event, nil callback function passed as argument")
+	}
 	for i := range chaincodeEventsList {
 		if i%2 == 0 {
 			event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
 			if _, exists := ec.chaincodeEvents[event]; exists {
-				fmt.Println("error registering for chaincode event, already subscribed to event: %v, on chaincode ID: %v", chaincodeEventsList[i+1], chaincodeEventsList[i])
+				return fmt.Errorf("error registering for chaincode event, already subscribed to event: %v, on chaincode ID: %v", chaincodeEventsList[i+1], chaincodeEventsList[i])
 			}
 			ec.chaincodeEvents[event] = rc
 		}
@@ -213,6 +231,12 @@ func (ec *EventsClient) RegisterChaincodeEvents(chaincodeEventsList []string, rc
 
 // UnregisterChaincodeEvents - unregisters interest in chaincode event(s)
 func (ec *EventsClient) UnregisterChaincodeEvents(chaincodeEventsList []string) error {
+	if len(chaincodeEventsList) < 2 {
+		return fmt.Errorf("error registering for chaincode event, at least one chaincode ID and one event name must be provided")
+	}
+	if len(chaincodeEventsList)%2 != 0 {
+		return fmt.Errorf("error registering for chaincode event, chaincode events must be passed in pairs with at least one chaincode ID and one event name")
+	}
 	for i := range chaincodeEventsList {
 		if i%2 == 0 {
 			event := eventHolder{chaincodeID: chaincodeEventsList[i], eventName: chaincodeEventsList[i+1]}
@@ -230,6 +254,9 @@ func (ec *EventsClient) UnregisterChaincodeEvents(chaincodeEventsList []string) 
 func (ec *EventsClient) RegisterTxEvents(txIDsList []string, rt recvTxEventFunc) error {
 	if len(txIDsList) == 0 {
 		return fmt.Errorf("error registering for tx event(s), at least one txID must be provided")
+	}
+	if rt == nil {
+		return fmt.Errorf("error registering for tx event, nil callback function passed as argument")
 	}
 	for _, input := range txIDsList {
 		if _, exists := ec.txIDs[input]; exists {
