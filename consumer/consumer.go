@@ -67,7 +67,7 @@ type EventsClient struct {
 }
 
 //NewEventsClient Returns a new grpc.ClientConn to the configured local PEER.
-func NewEventsClient(peerAddress string, regTimeout time.Duration) (*EventsClient, error) {
+func NewEventsClient(peerAddress string, regTimeout time.Duration, disconnected disconnectedFunc) (*EventsClient, error) {
 	var err error
 	var emptyRegBlockMap = make(map[bool]recvBlockEventFunc)
 	var emptyChannelIDsMap = make(map[string]int)
@@ -84,7 +84,7 @@ func NewEventsClient(peerAddress string, regTimeout time.Duration) (*EventsClien
 	if len(peerAddress) == 0 {
 		err = fmt.Errorf("peer address must be provided")
 	}
-	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, nil, emptyRegBlockMap, emptyChannelIDsMap, emptyChaincodeEventsMap, emptyTxIDsMap, emptyRegInvalidMap}, err
+	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, disconnected, emptyRegBlockMap, emptyChannelIDsMap, emptyChaincodeEventsMap, emptyTxIDsMap, emptyRegInvalidMap}, err
 }
 
 //newEventsClientConnectionWithAddress Returns a new grpc.ClientConn to the configured local PEER.
@@ -316,7 +316,6 @@ func (ec *EventsClient) processEvents() error {
 			fmt.Println("warning, non Event_Block sent to processEvents, ignoring event")
 			continue
 		}
-
 		block := in.Event.(*peer.Event_Block).Block
 		txsFltr := util.TxValidationFlags(block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER])
 		for i, ebytes := range block.Data.Data {

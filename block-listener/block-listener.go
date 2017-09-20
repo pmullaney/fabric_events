@@ -34,7 +34,10 @@ var wg sync.WaitGroup
 
 //Disconnected implements consumer.EventAdapter interface for disconnecting
 func disconnected(err error) {
-	fmt.Print("Disconnected...exiting\n")
+	if err != nil {
+		fmt.Printf("Error on disconnect: %v", err)
+	}
+	fmt.Printf("Disconnected...exiting\n")
 	wg.Done()
 	os.Exit(1)
 }
@@ -43,7 +46,7 @@ func createEventClient(eventAddress string, channelIDs, txIDs, chaincodeEvents [
 
 	var eventsClient *consumer.EventsClient
 
-	eventsClient, err := consumer.NewEventsClient(eventAddress, 5)
+	eventsClient, err := consumer.NewEventsClient(eventAddress, 5, disconnected)
 	if err != nil {
 		fmt.Println(err)
 	}
