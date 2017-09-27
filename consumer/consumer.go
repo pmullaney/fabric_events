@@ -311,38 +311,24 @@ func (ec *EventsClient) UnregisterChannelIDs(channelIDsList []string) error {
 	return nil
 }
 
-// Recv receives next event - use when client has not called Start
-func (ec *EventsClient) Recv() (*peer.Event, error) {
-	in, err := ec.stream.Recv()
-	if err == io.EOF {
-		// read done.
-		ec.disconnected(nil)
-		return nil, err
-	}
-	if err != nil {
-		ec.disconnected(err)
-		return nil, err
-	}
-	return in, nil
-}
-
 func (ec *EventsClient) processEvents() error {
 	defer ec.stream.CloseSend()
 	for {
 		in, err := ec.stream.Recv()
-		if err == io.EOF {
+		if err == io.EOF || err != nil {
 			// read done.
-			ec.disconnected(nil)
-			return nil
-		}
-		if err != nil {
 			ec.disconnected(err)
-			return err
+			return nil
 		}
 		if _, ok := in.Event.(*peer.Event_Block); !ok {
 			fmt.Println("warning, non Event_Block sent to processEvents, ignoring event")
 			continue
 		}
+
+		fmt.Println("*** in ***")
+		fmt.Println(in)
+		fmt.Println("*** /in ***")
+		
 		block := in.Event.(*peer.Event_Block).Block
 		txsFltr := util.TxValidationFlags(block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER])
 		for i, ebytes := range block.Data.Data {

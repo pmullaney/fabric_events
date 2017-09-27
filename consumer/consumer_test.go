@@ -13,6 +13,10 @@ import (
 	"testing"
 	"time"
 
+//	"google.golang.org/grpc/credentials"
+//	"google.golang.org/grpc/grpclog"
+//	"github.com/hyperledger/fabric/core/config"
+
 	coreutil "github.com/hyperledger/fabric/core/testutil"
 	"github.com/hyperledger/fabric/events/producer"
 	"github.com/hyperledger/fabric/msp/mgmt/testtools"
@@ -21,6 +25,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+//	"github.com/hyperledger/fabric/core/comm"
 )
 
 var peerAddress = "0.0.0.0:7303"
@@ -44,6 +49,7 @@ func mockRecvChaincodeEventFunc(msg *peer.ChaincodeEvent) {
 func mockRecvTxEventFunc(msg *peer.Transaction) {
 	return
 }
+
 
 func TestNewEventsClient(t *testing.T) {
 	var cases = []struct {
@@ -82,7 +88,6 @@ func TestNewEventsClient(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Logf("Running test: %s", test.name)
 			var regTimeout = time.Duration(test.time) * time.Second
-
 			_, err := NewEventsClient(peerAddress, regTimeout, test.d)
 			if test.expected {
 				assert.NoError(t, err)
@@ -118,6 +123,7 @@ func TestNewEventsClientConnectionWithAddress(t *testing.T) {
 			if test.expected {
 				assert.NoError(t, err)
 			} else {
+			//	fmt.Println("***", err)
 				assert.Error(t, err)
 			}
 		})
@@ -153,6 +159,7 @@ func TestStart(t *testing.T) {
 			if test.expected {
 				assert.NoError(t, err)
 			} else {
+				fmt.Println("***", err)
 				assert.Error(t, err)
 			}
 			eventsClient.Stop()
@@ -730,6 +737,101 @@ func TestUnregisterChannelIDs(t *testing.T) {
 	}
 }
 
+func TestProcessEvents(t *testing.T) {
+	var err error
+	var regTimeout = 5 * time.Second
+
+	var cases = []struct {
+		name     string
+		address  string
+		expected bool
+	}{
+		{
+			name:     "success",
+			address:  peerAddress,
+			expected: true,
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Logf("Running test: %s", test.name)
+			eventsClient, _ = NewEventsClient(test.address, regTimeout, mockDisconnected)
+			err = eventsClient.Start()
+		        creator, err := getCreatorFromLocalMSP()
+		        if err != nil {
+				t.Fail()
+				t.Logf("Error getting creator from MSP %s", err)
+		        }
+			emsg := &peer.Event{Event: &peer.Event_Block{Block: &common.Block{}}, Creator: creator}
+			// SEND BLOCK EVENT
+			producer.Send(emsg)
+//			time.Sleep(5 * time.Second)
+
+			if test.expected {
+				assert.NoError(t, err)
+			} else {
+				fmt.Println("***", err)
+				assert.Error(t, err)
+			}
+			eventsClient.Stop()
+		})
+	}
+}
+/*
+func TestProcessEvents(t *testing.T) {
+	var err error
+	var regTimeout = 5 * time.Second
+
+	var cases = []struct {
+		name     string
+		address  string
+		expected bool
+	}{
+		{
+			name:     "success",
+			address:  peerAddress,
+			expected: true,
+		},
+		{
+			name:     "fail no peerAddress",
+			address:  "",
+			expected: false,
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Logf("Running test: %s", test.name)
+			eventsClient, _ = NewEventsClient(test.address, regTimeout, mockDisconnected)
+			err = eventsClient.Start()
+
+		        creator, err := getCreatorFromLocalMSP()
+		        if err != nil {
+				t.Fail()
+				t.Logf("Error getting creator from MSP %s", err)
+		        }
+			if eventsClient.stream == nil {
+                		t.Fail()
+				t.Logf("Error, ec.stream is nil")
+        		}
+			emsg := &peer.Event{Event: &peer.Event_Block{Block: &common.Block{}}, Creator: creator}
+			err = eventsClient.send(emsg)
+		        if err != nil {
+				t.Fail()
+				t.Logf("Error sending message %s", err)
+		        }
+			if test.expected {
+				assert.NoError(t, err)
+			} else {
+				fmt.Println("***", err)
+				assert.Error(t, err)
+			}
+			eventsClient.Stop()
+		})
+	}
+}
+*/
 func TestMain(m *testing.M) {
 	err := msptesttools.LoadMSPSetupForTesting()
 	if err != nil {
@@ -739,7 +841,19 @@ func TestMain(m *testing.M) {
 	}
 
 	coreutil.SetupTestConfig()
+
 	var opts []grpc.ServerOption
+
+//nc
+/*
+		creds, err := credentials.NewServerTLSFromFile(config.GetPath("peer.tls.cert.file"), config.GetPath("peer.tls.key.file"))
+		if err != nil {
+			grpclog.Fatalf("Failed to generate credentials %v", err)
+		}
+		opts = []grpc.ServerOption{grpc.Creds(creds)}
+*/
+//endnc
+
 	grpcServer := grpc.NewServer(opts...)
 
 	lis, err := net.Listen("tcp", peerAddress)
