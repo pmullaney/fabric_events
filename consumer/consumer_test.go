@@ -13,27 +13,29 @@ import (
 	"testing"
 	"time"
 
-//	"google.golang.org/grpc/credentials"
-//	"google.golang.org/grpc/grpclog"
-//	"github.com/hyperledger/fabric/core/config"
-
+	//	"google.golang.org/grpc/credentials"
+	//	"google.golang.org/grpc/grpclog"
+	//	"github.com/hyperledger/fabric/core/config"
+	"github.com/hyperledger/fabric/common/ledger/testutil"
 	coreutil "github.com/hyperledger/fabric/core/testutil"
 	"github.com/hyperledger/fabric/events/producer"
 	"github.com/hyperledger/fabric/msp/mgmt/testtools"
-	"github.com/hyperledger/fabric/protos/common"
+	//"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/peer"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
-//	"github.com/hyperledger/fabric/core/comm"
+	//	"github.com/hyperledger/fabric/core/comm"
 )
 
 var peerAddress = "0.0.0.0:7303"
 
+/*
 var eventsClient *EventsClient
-
+*/
 func mockDisconnected(err error) {}
 
+/*
 func mockRecvInvalidEventFunc(msg *common.ChannelHeader) {
 	return
 }
@@ -736,7 +738,7 @@ func TestUnregisterChannelIDs(t *testing.T) {
 		})
 	}
 }
-
+*/
 func TestProcessEvents(t *testing.T) {
 	var err error
 	var regTimeout = 5 * time.Second
@@ -756,17 +758,23 @@ func TestProcessEvents(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			t.Logf("Running test: %s", test.name)
-			eventsClient, _ = NewEventsClient(test.address, regTimeout, mockDisconnected)
+			eventsClient, _ := NewEventsClient(test.address, regTimeout, mockDisconnected)
 			err = eventsClient.Start()
-		        creator, err := getCreatorFromLocalMSP()
-		        if err != nil {
+			creator, err := getCreatorFromLocalMSP()
+			if err != nil {
 				t.Fail()
 				t.Logf("Error getting creator from MSP %s", err)
-		        }
-			emsg := &peer.Event{Event: &peer.Event_Block{Block: &common.Block{}}, Creator: creator}
+			}
+			block := testutil.ConstructTestBlock(t, 1, 10, 100)
+			emsg := &peer.Event{Event: &peer.Event_Block{Block: block}, Creator: creator}
 			// SEND BLOCK EVENT
+			t.Logf("emsg: %s", fmt.Sprintf("%v", emsg))
 			producer.Send(emsg)
-//			time.Sleep(5 * time.Second)
+			/*if err = producer.SendProducerBlockEvent(block); err != nil {
+				t.Fail()
+				t.Logf("Error sending message %s", err)
+			}*/
+			//			time.Sleep(5 * time.Second)
 
 			if test.expected {
 				assert.NoError(t, err)
@@ -778,6 +786,7 @@ func TestProcessEvents(t *testing.T) {
 		})
 	}
 }
+
 /*
 func TestProcessEvents(t *testing.T) {
 	var err error
@@ -844,15 +853,15 @@ func TestMain(m *testing.M) {
 
 	var opts []grpc.ServerOption
 
-//nc
-/*
+	//nc
+	/*
 		creds, err := credentials.NewServerTLSFromFile(config.GetPath("peer.tls.cert.file"), config.GetPath("peer.tls.key.file"))
 		if err != nil {
 			grpclog.Fatalf("Failed to generate credentials %v", err)
 		}
 		opts = []grpc.ServerOption{grpc.Creds(creds)}
-*/
-//endnc
+	*/
+	//endnc
 
 	grpcServer := grpc.NewServer(opts...)
 
@@ -869,6 +878,9 @@ func TestMain(m *testing.M) {
 
 	go grpcServer.Serve(lis)
 
+	status := m.Run()
+	fmt.Println("Run done")
 	time.Sleep(2 * time.Second)
-	os.Exit(m.Run())
+	//os.Exit(m.Run())
+	os.Exit(status)
 }

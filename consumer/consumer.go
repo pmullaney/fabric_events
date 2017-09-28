@@ -28,7 +28,7 @@ import (
 
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/comm"
-	"github.com/hyperledger/fabric/core/ledger/util"
+	//	"github.com/hyperledger/fabric/core/ledger/util"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/peer"
@@ -36,6 +36,10 @@ import (
 )
 
 var consumerLogger = flogging.MustGetLogger("eventhub_consumer")
+
+func init() {
+	flogging.InitFromSpec("DEBUG")
+}
 
 type recvBlockEventFunc func(*peer.Event_Block)
 
@@ -312,105 +316,113 @@ func (ec *EventsClient) UnregisterChannelIDs(channelIDsList []string) error {
 }
 
 func (ec *EventsClient) processEvents() error {
-	defer ec.stream.CloseSend()
-	for {
-		in, err := ec.stream.Recv()
-		if err == io.EOF || err != nil {
-			// read done.
-			ec.disconnected(err)
-			return nil
-		}
-		if _, ok := in.Event.(*peer.Event_Block); !ok {
-			fmt.Println("warning, non Event_Block sent to processEvents, ignoring event")
-			continue
-		}
+	//defer ec.stream.CloseSend()
+	consumerLogger.Debug("process Events\n")
+	//for {
+	in, err := ec.stream.Recv()
+	consumerLogger.Debug("process Events1\n")
+	consumerLogger.Debugf("in=%s\n", fmt.Sprintf("%v", in))
+	if err == io.EOF || err != nil {
+		// read done.
+		ec.disconnected(err)
+		return nil
+	}
+	if _, ok := in.Event.(*peer.Event_Block); !ok {
+		fmt.Println("warning, non Event_Block sent to processEvents, ignoring event")
+		//continue
+	}
 
-		fmt.Println("*** in ***")
-		fmt.Println(in)
-		fmt.Println("*** /in ***")
-		
-		block := in.Event.(*peer.Event_Block).Block
-		txsFltr := util.TxValidationFlags(block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER])
-		for i, ebytes := range block.Data.Data {
-			if ebytes != nil {
-				if env, err := utils.GetEnvelopeFromBlock(ebytes); err != nil {
-					return fmt.Errorf("error getting tx from block(%s)", err)
-				} else if env != nil {
-					// get the payload from the envelope
-					payload, err := utils.GetPayload(env)
-					if err != nil {
-						return fmt.Errorf("could not extract payload from envelope, err %s", err)
-					}
-					chdr, err := utils.UnmarshalChannelHeader(payload.Header.ChannelHeader)
-					if err != nil {
-						return err
-					}
-					// Channel ID logic
-					// set registered for all channels
-					regChannelID := true
-					// check if registered for specific channel(s)
-					if len(ec.channelIDs) != 0 {
-						regChannelID = false
-						if _, exists := ec.channelIDs[chdr.ChannelId]; exists {
-							regChannelID = true
-						}
-					}
-					if regChannelID == false {
-						continue
-					}
-					// Block event logic
-					if regBlockFunc, exists := ec.regBlock[true]; exists {
-						// Used to send block event
-						regBlockFunc(in.Event.(*peer.Event_Block))
-					}
-					// Invalid event logic
-					if regInvalidFunc, exists := ec.regInvalid[true]; exists {
-						if txsFltr.IsInvalid(i) {
-							regInvalidFunc(chdr)
-						}
-					}
-					if len(ec.txIDs) != 0 || len(ec.chaincodeEvents) != 0 {
-						if common.HeaderType(chdr.Type) == common.HeaderType_ENDORSER_TRANSACTION {
-							tx, err := utils.GetTransaction(payload.Data)
+	//fmt.Println("*** in ***")
+	//fmt.Println("*** /in ***")
+
+	block := in.Event.(*peer.Event_Block).Block
+	consumerLogger.Debugf("in=%s\n", fmt.Sprintf("%v", in))
+	consumerLogger.Debugf("block=%s\n", fmt.Sprintf("%v", block))
+	/*
+				txsFltr := util.TxValidationFlags(block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER])
+				fmt.Println("txsFltr=%v\n", txsFltr)
+				for i, ebytes := range block.Data.Data {
+					if ebytes != nil {
+						if env, err := utils.GetEnvelopeFromBlock(ebytes); err != nil {
+							return fmt.Errorf("error getting tx from block(%s)", err)
+						} else if env != nil {
+							// get the payload from the envelope
+							payload, err := utils.GetPayload(env)
 							if err != nil {
-								return fmt.Errorf("error unmarshalling transaction payload for block event: %s", err)
+								return fmt.Errorf("could not extract payload from envelope, err %s", err)
 							}
-							// Tx event logic
-							if len(ec.txIDs) != 0 {
-								if txIDFunc, exists := ec.txIDs[chdr.TxId]; exists {
-									// Used to send txEvent
-									txIDFunc(tx)
+							chdr, err := utils.UnmarshalChannelHeader(payload.Header.ChannelHeader)
+							if err != nil {
+								return err
+							}
+							// Channel ID logic
+							// set registered for all channels
+							regChannelID := true
+							// check if registered for specific channel(s)
+							if len(ec.channelIDs) != 0 {
+								regChannelID = false
+								if _, exists := ec.channelIDs[chdr.ChannelId]; exists {
+									regChannelID = true
 								}
 							}
-							// Chaincode event logic
-							if len(ec.chaincodeEvents) != 0 {
-								chaincodeActionPayload, err := utils.GetChaincodeActionPayload(tx.Actions[0].Payload)
-								if err != nil {
-									return fmt.Errorf("error unmarshalling transaction action payload for block event: %s", err)
+							if regChannelID == false {
+								continue
+							}
+							// Block event logic
+							if regBlockFunc, exists := ec.regBlock[true]; exists {
+								// Used to send block event
+								regBlockFunc(in.Event.(*peer.Event_Block))
+							}
+							// Invalid event logic
+							if regInvalidFunc, exists := ec.regInvalid[true]; exists {
+								if txsFltr.IsInvalid(i) {
+									regInvalidFunc(chdr)
 								}
-								propRespPayload, err := utils.GetProposalResponsePayload(chaincodeActionPayload.Action.ProposalResponsePayload)
-								if err != nil {
-									return fmt.Errorf("error unmarshalling proposal response payload for block event: %s", err)
-								}
-								caPayload, err := utils.GetChaincodeAction(propRespPayload.Extension)
-								if err != nil {
-									return fmt.Errorf("Error unmarshalling chaincode action for block event: %s", err)
-								}
-								ccEvent, err := utils.GetChaincodeEvents(caPayload.Events)
-								if ccEvent != nil {
-									event := eventHolder{chaincodeID: ccEvent.ChaincodeId, eventName: ccEvent.EventName}
-									if recvChaincodeEventFunc, exists := ec.chaincodeEvents[event]; exists {
-										// Used to send ccEvent
-										recvChaincodeEventFunc(ccEvent)
+							}
+							if len(ec.txIDs) != 0 || len(ec.chaincodeEvents) != 0 {
+								if common.HeaderType(chdr.Type) == common.HeaderType_ENDORSER_TRANSACTION {
+									tx, err := utils.GetTransaction(payload.Data)
+									if err != nil {
+										return fmt.Errorf("error unmarshalling transaction payload for block event: %s", err)
+									}
+									// Tx event logic
+									if len(ec.txIDs) != 0 {
+										if txIDFunc, exists := ec.txIDs[chdr.TxId]; exists {
+											// Used to send txEvent
+											txIDFunc(tx)
+										}
+									}
+									// Chaincode event logic
+									if len(ec.chaincodeEvents) != 0 {
+										chaincodeActionPayload, err := utils.GetChaincodeActionPayload(tx.Actions[0].Payload)
+										if err != nil {
+											return fmt.Errorf("error unmarshalling transaction action payload for block event: %s", err)
+										}
+										propRespPayload, err := utils.GetProposalResponsePayload(chaincodeActionPayload.Action.ProposalResponsePayload)
+										if err != nil {
+											return fmt.Errorf("error unmarshalling proposal response payload for block event: %s", err)
+										}
+										caPayload, err := utils.GetChaincodeAction(propRespPayload.Extension)
+										if err != nil {
+											return fmt.Errorf("Error unmarshalling chaincode action for block event: %s", err)
+										}
+										ccEvent, err := utils.GetChaincodeEvents(caPayload.Events)
+										if ccEvent != nil {
+											event := eventHolder{chaincodeID: ccEvent.ChaincodeId, eventName: ccEvent.EventName}
+											if recvChaincodeEventFunc, exists := ec.chaincodeEvents[event]; exists {
+												// Used to send ccEvent
+												recvChaincodeEventFunc(ccEvent)
+											}
+										}
 									}
 								}
 							}
 						}
 					}
 				}
-			}
 		}
-	}
+	*/
+	return nil
 }
 
 //Start establishes connection with Event hub and registers interested events with it
